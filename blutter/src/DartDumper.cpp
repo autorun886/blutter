@@ -7,9 +7,15 @@
 #include <iostream>
 #include <sstream>
 #include <numeric>
+#include <cstdlib>
+#include "Util.h"
+#ifndef NO_CODE_ANALYSIS
 #include "Disassembler.h"
+#endif
 #include "DartThreadInfo.h"
+#ifndef NO_CODE_ANALYSIS
 #include "CodeAnalyzer.h"
+#endif
 
 // TODO: move arm64 specific code to *_arm64 file
 
@@ -88,6 +94,7 @@ void DartDumper::Dump4Ida(std::filesystem::path outDir)
 	std::ofstream of((outDir / "addNames.py").string());
 	of << "import ida_funcs\n";
 	of << "import idaapi\n\n";
+	of << "import idc\n\n";
 
 	for (auto lib : app.libs) {
 		std::string lib_prefix = lib->GetName();
@@ -133,9 +140,22 @@ void DartDumper::Dump4Ida(std::filesystem::path outDir)
 	// Note: create struct with a lot of member by ida script is very slow
 	//   use header file then adding comment is much faster
 	auto comments = DumpStructHeaderFile((outDir / "ida_dart_struct.h").string());
+	auto objectPoolCommentsEnv = std::getenv("BLUTTER_IDA_OBJECT_POOL_COMMENTS");
+	bool includeObjectPoolComments = objectPoolCommentsEnv != nullptr && std::string(objectPoolCommentsEnv) == "1";
 	of << R"CBLOCK(
-import ida_struct
 import os
+try:
+	import ida_struct
+except ImportError:
+	ida_struct = None
+
+def set_struct_member_comment(sid, offset, comment):
+	if ida_struct is not None:
+		struc = ida_struct.get_struc(sid)
+		ida_struct.set_member_cmt(ida_struct.get_member(struc, offset), comment, True)
+	else:
+		idc.set_member_cmt(sid, offset, comment, True)
+
 def create_Dart_structs():
 	sid1 = idc.get_struc_id("DartThread")
 	if sid1 != idc.BADADDR:
@@ -144,16 +164,22 @@ def create_Dart_structs():
 	idaapi.idc_parse_types(hdr_file, idc.PT_FILE)
 	sid1 = idc.import_type(-1, "DartThread")
 	sid2 = idc.import_type(-1, "DartObjectPool")
-	struc = ida_struct.get_struc(sid2)
 )CBLOCK";
-	for (const auto& [offset, comment] : comments) {
-		of << "\tida_struct.set_member_cmt(ida_struct.get_member(struc, " << offset << "), '''" << comment << "''', True)\n";
+	if (includeObjectPoolComments) {
+		for (const auto& [offset, comment] : comments) {
+			of << "\tset_struct_member_comment(sid2, " << offset << ", '''" << comment << "''')\n";
+		}
+	}
+	else {
+		of << "\t# Object pool comments omitted by default. Re-run blutter with BLUTTER_IDA_OBJECT_POOL_COMMENTS=1 to include them.\n";
 	}
 	of << "\treturn sid1, sid2\n";
 	of << "thrs, pps = create_Dart_structs()\n";
 
+#ifndef NO_CODE_ANALYSIS
 	of << "print('Applying Thread and Object Pool struct')\n";
 	applyStruct4Ida(of);
+#endif
 
 	of << "print('Script finished!')\n";
 }
@@ -244,6 +270,7 @@ std::vector<std::pair<intptr_t, std::string>> DartDumper::DumpStructHeaderFile(s
 
 void DartDumper::applyStruct4Ida(std::ostream& of)
 {
+#ifndef NO_CODE_ANALYSIS
 	Disassembler disasmer;
 
 	of << "import ida_ua\n";
@@ -286,6 +313,7 @@ void DartDumper::applyStruct4Ida(std::ostream& of)
 			}
 		}
 	}
+#endif
 }
 
 const std::string& DartDumper::getQuoteString(dart::Object& obj)
@@ -303,7 +331,9 @@ void DartDumper::DumpCode(const char* out_dir)
 {
 	std::filesystem::create_directory(out_dir);
 
+#ifndef NO_CODE_ANALYSIS
 	Disassembler disasmer;
+#endif
 
 	for (auto dartLib : app.libs) {
 		if (dartLib->isInternal)

@@ -1,6 +1,11 @@
 #pragma once
 #include "DartFnBase.h"
+#include "DartTypes.h"
+#ifndef NO_CODE_ANALYSIS
 #include "CodeAnalyzer.h"
+#else
+class AnalyzedFnData;
+#endif
 
 class DartClass;
 class DartApp;
@@ -82,10 +87,14 @@ public:
 	std::vector<FnParam>& Params() { return signature.Params(); }
 	FnParam& Param(int i) { return signature.Param(i); }
 
+#ifndef NO_CODE_ANALYSIS
 	void SetAnalyzedData(std::unique_ptr<AnalyzedFnData> data);
 	AnalyzedFnData* GetAnalyzedData() { return analyzedData.get(); }
+#endif
 
+#ifndef NO_CODE_ANALYSIS
 	std::string ToCallStatement(const std::vector<std::shared_ptr<VarItem>>& args) const;
+#endif
 	void PrintHead(std::ostream& of) const;
 	void PrintFoot(std::ostream& of) const;
 
@@ -107,8 +116,9 @@ private:
 	//uint32_t code_size; // code size
 
 	DartFunctionSignature signature;
+#ifndef NO_CODE_ANALYSIS
 	std::unique_ptr<AnalyzedFnData> analyzedData;
+#endif
 
 	friend class DartApp;
 };
-

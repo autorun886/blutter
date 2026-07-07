@@ -22,12 +22,13 @@ BUILD_DIR = os.path.join(SCRIPT_DIR, 'build')
 
 
 class BlutterInput:
-    def __init__(self, libapp_path: str, dart_info: DartLibInfo, outdir: str, rebuild_blutter: bool, create_vs_sln: bool, no_analysis: bool):
+    def __init__(self, libapp_path: str, dart_info: DartLibInfo, outdir: str, rebuild_blutter: bool, create_vs_sln: bool, no_analysis: bool, arch: str = None):
         self.libapp_path = libapp_path
         self.dart_info = dart_info
         self.outdir = outdir
         self.rebuild_blutter = rebuild_blutter
         self.create_vs_sln = create_vs_sln
+        self.arch = arch
 
         vers = dart_info.version.split('.', 2)
         if int(vers[0]) == 2 and int(vers[1]) < 15:
@@ -47,10 +48,53 @@ class BlutterInput:
         self.blutter_file = os.path.join(BIN_DIR, self.blutter_name) + ('.exe' if os.name == 'nt' else '')
 
 
+def _framework_binary(framework_dir: str):
+    name = os.path.splitext(os.path.basename(framework_dir))[0]
+    candidates = [
+        os.path.join(framework_dir, name),
+        os.path.join(framework_dir, 'Versions', 'A', name),
+    ]
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
+    return None
+
+def _find_macos_app_files(app_dir: str):
+    frameworks_dir = os.path.join(app_dir, 'Contents', 'Frameworks')
+    app_framework = os.path.join(frameworks_dir, 'App.framework')
+    flutter_framework = os.path.join(frameworks_dir, 'FlutterMacOS.framework')
+    app_file = _framework_binary(app_framework)
+    flutter_file = _framework_binary(flutter_framework)
+    if app_file is not None and flutter_file is not None:
+        return os.path.abspath(app_file), os.path.abspath(flutter_file)
+    return None
+
 def find_lib_files(indir: str):
+    if os.path.isfile(indir):
+        return os.path.abspath(indir), None
+
+    if indir.endswith('.app'):
+        found = _find_macos_app_files(indir)
+        if found is not None:
+            return found
+
+    if indir.endswith('.framework'):
+        app_file = _framework_binary(indir)
+        if app_file is None:
+            sys.exit("Cannot find framework binary")
+        return os.path.abspath(app_file), None
+
+    found = _find_macos_app_files(indir)
+    if found is not None:
+        return found
+
     app_file = os.path.join(indir, 'libapp.so')
     if not os.path.isfile(app_file):
         app_file = os.path.join(indir, 'App')
+        if not os.path.isfile(app_file):
+            app_file = os.path.join(indir, 'App.framework', 'App')
+        if not os.path.isfile(app_file):
+            app_file = os.path.join(indir, 'App.framework', 'Versions', 'A', 'App')
         if not os.path.isfile(app_file):
             sys.exit("Cannot find libapp file")
     
@@ -58,9 +102,13 @@ def find_lib_files(indir: str):
     if not os.path.isfile(flutter_file):
         flutter_file = os.path.join(indir, 'Flutter')
         if not os.path.isfile(flutter_file):
-            sys.exit("Cannot find libflutter file")
+            flutter_file = os.path.join(indir, 'FlutterMacOS.framework', 'FlutterMacOS')
+        if not os.path.isfile(flutter_file):
+            flutter_file = os.path.join(indir, 'FlutterMacOS.framework', 'Versions', 'A', 'FlutterMacOS')
+        if not os.path.isfile(flutter_file):
+            flutter_file = None
     
-    return os.path.abspath(app_file), os.path.abspath(flutter_file)
+    return os.path.abspath(app_file), None if flutter_file is None else os.path.abspath(flutter_file)
 
 def extract_libs_from_apk(apk_file: str, out_dir: str):
     with zipfile.ZipFile(apk_file, "r") as zf:
@@ -184,6 +232,8 @@ def build_and_run(input: BlutterInput):
         blutter_dir = os.path.join(SCRIPT_DIR, 'blutter')
         dbg_output_path = os.path.abspath(os.path.join(input.outdir, 'out'))
         dbg_cmd_args = f'-i {input.libapp_path} -o {dbg_output_path}'
+        if input.arch is not None:
+            dbg_cmd_args += f' --arch {input.arch}'
 
         vscmd_ver = os.getenv('VSCMD_VER')
         assert vscmd_ver is not None, "Need run blutter in Visual Studio Develeper console"
@@ -207,27 +257,44 @@ def build_and_run(input: BlutterInput):
             assert os.path.isfile(input.blutter_file), "Build complete but cannot find Blutter binary: " + input.blutter_file
 
         # execute blutter    
-        subprocess.run([input.blutter_file, '-i', input.libapp_path, '-o', input.outdir], check=True)
+        run_args = [input.blutter_file, '-i', input.libapp_path, '-o', input.outdir]
+        if input.arch is not None:
+            run_args += ['--arch', input.arch]
+        subprocess.run(run_args, check=True)
 
-def main_no_flutter(libapp_path: str, dart_version: str, outdir: str, rebuild_blutter: bool, create_vs_sln: bool, no_analysis: bool):
-    version, os_name, arch = dart_version.split('_')
+def main_no_flutter(libapp_path: str, dart_version: str, outdir: str, rebuild_blutter: bool, create_vs_sln: bool, no_analysis: bool, arch: str = None):
+    version, os_name, version_arch = dart_version.split('_')
+    if arch is None:
+        arch = version_arch
+    elif arch != version_arch:
+        sys.exit(f'--arch {arch} does not match --dart-version architecture {version_arch}')
     dart_info = DartLibInfo(version, os_name, arch)
-    input = BlutterInput(libapp_path, dart_info, outdir, rebuild_blutter, create_vs_sln, no_analysis)
+    input = BlutterInput(libapp_path, dart_info, outdir, rebuild_blutter, create_vs_sln, no_analysis, arch)
     build_and_run(input)
     
-def main2(libapp_path: str, libflutter_path: str, outdir: str, rebuild_blutter: bool, create_vs_sln: bool, no_analysis: bool):
-    dart_info = get_dart_lib_info(libapp_path, libflutter_path)
-    input = BlutterInput(libapp_path, dart_info, outdir, rebuild_blutter, create_vs_sln, no_analysis)
+def main2(libapp_path: str, libflutter_path: str, outdir: str, rebuild_blutter: bool, create_vs_sln: bool, no_analysis: bool, arch: str = None):
+    if libflutter_path is None:
+        sys.exit('Cannot find libflutter/FlutterMacOS. Use --dart-version when only libapp/App is available.')
+    from extract_dart_info import extract_dart_info
+    dart_version, snapshot_hash, flags, detected_arch, os_name = extract_dart_info(libapp_path, libflutter_path, arch)
+    print(f'Dart version: {dart_version}, Snapshot: {snapshot_hash}, Target: {os_name} {detected_arch}')
+    print('flags: ' + ' '.join(flags))
+
+    has_compressed_ptrs = 'compressed-pointers' in flags
+    dart_info = DartLibInfo(dart_version, os_name, detected_arch, has_compressed_ptrs, snapshot_hash)
+    input = BlutterInput(libapp_path, dart_info, outdir, rebuild_blutter, create_vs_sln, no_analysis, arch or detected_arch)
     build_and_run(input)
 
-def main(indir: str, outdir: str, rebuild_blutter: bool, create_vs_sln: bool, no_analysis: bool):
+def main(indir: str, outdir: str, rebuild_blutter: bool, create_vs_sln: bool, no_analysis: bool, arch: str = None):
     if indir.endswith(".apk"):
+        if arch not in (None, 'arm64'):
+            sys.exit('APK extraction currently supports only arm64-v8a')
         with tempfile.TemporaryDirectory() as tmp_dir:
             libapp_file, libflutter_file = extract_libs_from_apk(indir, tmp_dir)
-            main2(libapp_file, libflutter_file, outdir, rebuild_blutter, create_vs_sln, no_analysis)
+            main2(libapp_file, libflutter_file, outdir, rebuild_blutter, create_vs_sln, no_analysis, 'arm64')
     else:
         libapp_file, libflutter_file = find_lib_files(indir)
-        main2(libapp_file, libflutter_file, outdir, rebuild_blutter, create_vs_sln, no_analysis)
+        main2(libapp_file, libflutter_file, outdir, rebuild_blutter, create_vs_sln, no_analysis, arch)
 
 
 if __name__ == "__main__":
@@ -240,11 +307,12 @@ if __name__ == "__main__":
     parser.add_argument('--rebuild', action='store_true', default=False, help='Force rebuild the Blutter executable')
     parser.add_argument('--vs-sln', action='store_true', default=False, help='Generate Visual Studio solution at <outdir>')
     parser.add_argument('--no-analysis', action='store_true', default=False, help='Do not build with code analysis')
+    parser.add_argument('--arch', choices=['arm64', 'x64'], help='Architecture slice to use for fat Mach-O inputs')
     # rare usage scenario
     parser.add_argument('--dart-version', help='Run without libflutter (indir become libapp.so) by specify dart version such as "3.4.2_android_arm64"')
     args = parser.parse_args()
 
     if args.dart_version is None:
-        main(args.indir, args.outdir, args.rebuild, args.vs_sln, args.no_analysis)
+        main(args.indir, args.outdir, args.rebuild, args.vs_sln, args.no_analysis, args.arch)
     else:
-        main_no_flutter(args.indir, args.dart_version, args.outdir, args.rebuild, args.vs_sln, args.no_analysis)
+        main_no_flutter(args.indir, args.dart_version, args.outdir, args.rebuild, args.vs_sln, args.no_analysis, args.arch)

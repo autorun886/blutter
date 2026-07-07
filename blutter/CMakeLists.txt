@@ -40,6 +40,16 @@ endif()
 # Add source to this project's executable.
 set(SRCDIR "src")
 include(sourcelist.cmake)
+if (NO_CODE_ANALYSIS)
+	list(REMOVE_ITEM SRCS
+		CodeAnalyzer.cpp
+		CodeAnalyzer_arm64.cpp
+		Disassembler.cpp
+		Disassembler_arm64.cpp
+		VarValue.cpp
+		il.cpp
+	)
+endif()
 list(TRANSFORM SRCS PREPEND "${SRCDIR}/")
 add_executable(${BINNAME} ${SRCS})
 

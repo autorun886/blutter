@@ -3,8 +3,12 @@
 #include "DartClass.h"
 #include "DartLibrary.h"
 #include "DartApp.h"
+#ifndef NO_CODE_ANALYSIS
 #include "VarValue.h"
+#endif
+#ifndef NO_CODE_ANALYSIS
 #include "CodeAnalyzer.h"
+#endif
 #include <numeric>
 #include <array>
 
@@ -145,6 +149,7 @@ DartFunction* DartFunction::GetOutermostFunction() const
 	return topFn;
 }
 
+#ifndef NO_CODE_ANALYSIS
 void DartFunction::SetAnalyzedData(std::unique_ptr<AnalyzedFnData> data)
 {
 	// must never be called more than once
@@ -152,7 +157,9 @@ void DartFunction::SetAnalyzedData(std::unique_ptr<AnalyzedFnData> data)
 	
 	analyzedData = std::move(data);
 }
+#endif
 
+#ifndef NO_CODE_ANALYSIS
 static const auto BinaryOpNames = std::to_array<std::string>({ "+", "-", "*", "/", "~/", "%", "&", "|" });
 static bool isBinaryOpName(const std::string& name)
 {
@@ -192,6 +199,7 @@ std::string DartFunction::ToCallStatement(const std::vector<std::shared_ptr<VarI
 	}
 	return std::format("{}({})", callFn.c_str(), callArgs.c_str());
 }
+#endif
 
 void DartFunction::PrintHead(std::ostream& of) const
 {

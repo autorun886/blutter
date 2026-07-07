@@ -1,8 +1,11 @@
 #include "pch.h"
 #include "DartApp.h"
 #include "DartDumper.h"
+#ifndef NO_CODE_ANALYSIS
 #include "CodeAnalyzer.h"
+#endif
 #include "FridaWriter.h"
+#include "ElfHelper.h"
 #include "args.hxx"
 #include <filesystem>
 
@@ -13,9 +16,13 @@ int main(int argc, char** argv)
 	args::Group reqGrp(parser, "Required arguments", args::Group::Validators::All);
 	args::ValueFlag<std::string> infile(reqGrp, "infile", "libapp file", { 'i', "in" });
 	args::ValueFlag<std::string> outdir(reqGrp, "outdir", "out path", { 'o', "out"});
+	args::ValueFlag<std::string> arch(parser, "arch", "Mach-O architecture slice: arm64 or x64", { "arch" });
 
 	try {
 		parser.ParseCLI(argc, argv);
+		if (arch) {
+			ElfHelper::SetPreferredArch(args::get(arch).c_str());
+		}
 
 		auto& libappPath = args::get(infile);
 
