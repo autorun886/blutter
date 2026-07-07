@@ -62,7 +62,12 @@ int main(int argc, char** argv)
 
 		std::cout << "Generating Frida script\n";
 		FridaWriter fwriter{ app };
-		fwriter.Create((outDir / "blutter_frida.js").string().c_str());
+		auto fridaFile = outDir / "blutter_frida.js";
+		fwriter.Create(fridaFile.string().c_str());
+		if (arch) {
+			auto archFridaFile = outDir / std::format("blutter_frida_{}.js", args::get(arch));
+			std::filesystem::copy_file(fridaFile, archFridaFile, std::filesystem::copy_options::overwrite_existing);
+		}
 
 		app.ExitScope();
 	}

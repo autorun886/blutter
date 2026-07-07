@@ -14,6 +14,40 @@ void FridaWriter::Create(const char* filename)
 
 	std::ofstream of(filename, std::ios_base::app);
 
+	of << "\n";
+	of << "const BlutterArchitecture = ";
+#if defined(TARGET_ARCH_ARM64)
+	of << "\"arm64\";\n";
+#elif defined(TARGET_ARCH_X64)
+	of << "\"x64\";\n";
+#else
+	of << "\"unknown\";\n";
+#endif
+	of << "const BlutterHookOffset = null;\n";
+#if defined(DART_TARGET_OS_MACOS)
+	of << "const BlutterModuleNames = [\"App\"];\n";
+	of << "const BlutterModulePathHints = [\"/App.framework/App\"];\n";
+#else
+	of << "const BlutterModuleNames = [\"libapp.so\"];\n";
+	of << "const BlutterModulePathHints = [\"/libapp.so\"];\n";
+#endif
+#if defined(DART_COMPRESSED_POINTERS)
+	of << "const PointerCompressedEnabled = true;\n";
+	of << "const HeapAddressReg = \"x28\";\n";
+#else
+	of << "const PointerCompressedEnabled = false;\n";
+	of << "const HeapAddressReg = null;\n";
+#endif
+	of << "const CompressedWordSize = " << dart::kCompressedWordSize << ";\n";
+#if defined(TARGET_ARCH_ARM64)
+	of << "const NullReg = \"x22\";\n";
+	of << "const StackReg = \"x15\";\n";
+#else
+	of << "const NullReg = null;\n";
+	of << "const StackReg = null;\n";
+#endif
+	of << "\n";
+
 	of << "const ClassIdTagPos = " << kUntaggedObjectClassIdTagPos << ";\n";
 	of << std::format("const ClassIdTagMask = {:#x};\n", (1 << dart::UntaggedObject::kClassIdTagSize) - 1);
 
@@ -156,4 +190,5 @@ void FridaWriter::Create(const char* filename)
 		}
 	}
 	of << "];\n";
+	of << "tryLoadLibapp();\n";
 }

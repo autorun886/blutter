@@ -3,8 +3,12 @@ const MaxDepth = 5;
 var libapp = null;
 
 function onLibappLoaded() {
-    xxx("remove this line and correct the hook value");
-    const fn_addr = 0xdeadbeef;
+    console.log(`[blutter] app module loaded at ${libapp}`);
+    if (BlutterHookOffset === null) {
+        console.log("[blutter] script loaded. Set BlutterHookOffset to a Dart function offset before dumping arguments.");
+        return;
+    }
+    const fn_addr = BlutterHookOffset;
     Interceptor.attach(libapp.add(fn_addr), {
         onEnter: function () {
             init(this.context);
@@ -15,39 +19,41 @@ function onLibappLoaded() {
     });
 }
 
-function tryLoadLibapp() {
-    try {
-        libapp = Module.findBaseAddress('libapp.so');
-    } catch (e) {
-        if (e instanceof TypeError && e.message === "not a function") {
-            libapp = Process.findModuleByName('libapp.so');
-            if (libapp != null) {
-                libapp = libapp.base;
-            }
-        } else {
-            throw e;
+function findAppModule() {
+    for (const name of BlutterModuleNames) {
+        const mod = Process.findModuleByName(name);
+        if (mod !== null) {
+            return mod;
         }
     }
+
+    for (const mod of Process.enumerateModules()) {
+        for (const hint of BlutterModulePathHints) {
+            if (mod.path.indexOf(hint) !== -1) {
+                return mod;
+            }
+        }
+    }
+
+    return null;
+}
+
+function tryLoadLibapp() {
+    const mod = findAppModule();
+    if (mod !== null) {
+        libapp = mod.base;
+    }
+
     if (libapp === null)
-        setTimeout(tryLoadLibapp, 500);    
+        setTimeout(tryLoadLibapp, 500);
     else
         onLibappLoaded();
 }
-tryLoadLibapp();
-
-const PointerCompressedEnabled = true;
-const CompressedWordSize = 4;
-const HeapAddressReg = 'x28';
-const NullReg = 'x22';
-const StackReg = 'x15';
-
-if (!PointerCompressedEnabled)
-    console.error("now support only compressed pointer");
 
 let HeapAddress = 0;
 // this function must be called at least on first interception of Dart function
 function init(context) {
-    if (HeapAddress === 0) {
+    if (PointerCompressedEnabled && HeapAddress === 0) {
         // heap bit register value is not shifted
         HeapAddress = context[HeapAddressReg].shl(32);
     }
@@ -310,6 +316,9 @@ function getTaggedObjectValue(tptr, depthLeft = MaxDepth) {
 }
 
 function getArg(context, idx) {
+    if (StackReg === null) {
+        throw new Error(`getArg is not implemented for ${BlutterArchitecture}`);
+    }
     // Note: argument pointer is never compressed
     let stack = context[StackReg];
     return stack.add(8 * idx).readPointer();
